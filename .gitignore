@@ -1,0 +1,14 @@
+# macOS System Files
+.DS_Store
+
+# Python Environments & Cache
+__pycache__/
+*.pyc
+venv/
+env/
+.env
+
+# PyInstaller Build Artifacts
+build/
+dist/
+*.spec
