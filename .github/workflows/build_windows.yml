@@ -1,0 +1,27 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --name "PDF Toolbox" --windowed --icon="src/icon.icns" --add-data "src/main_window.ui;." --hidden-import controller --hidden-import pdf_engine src/main.py
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: PDF-Toolbox-Windows
+          path: dist/
