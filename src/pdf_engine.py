@@ -21,15 +21,22 @@ def extract_to_single_pdf(source_path, selected_pages, save_path):
     new_doc.close()
     doc.close()
 
-def extract_to_separate_pdfs(source_path, selected_pages, save_dir):
-    """Extracts specific pages, saving each as its own PDF in a folder."""
-    doc = fitz.open(source_path)
-    base_name = os.path.splitext(os.path.basename(source_path))[0]
+def extract_to_separate_pdfs(input_path, pages, output_folder):
+    import os
+    import fitz # Assuming you use PyMuPDF (fitz)
     
-    for p in selected_pages:
+    doc = fitz.open(input_path)
+    # Get filename without extension
+    base_name = os.path.splitext(os.path.basename(input_path))[0]
+    
+    for page_num in pages:
         new_doc = fitz.open()
-        new_doc.insert_pdf(doc, from_page=p, to_page=p)
-        save_path = os.path.join(save_dir, f"{base_name}_page_{p+1}.pdf")
-        new_doc.save(save_path)
+        new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+        
+        # New naming convention: (filename)-number.pdf
+        output_filename = f"{base_name}-{page_num + 1}.pdf"
+        output_path = os.path.join(output_folder, output_filename)
+        
+        new_doc.save(output_path)
         new_doc.close()
     doc.close()

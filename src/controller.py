@@ -390,7 +390,19 @@ class PdfToolboxApp(QObject):
         c = self.ui.listMergeFiles.count()
         if c == 0: return
         s, _ = QFileDialog.getSaveFileName(self.ui, "Save", self.get_last_dir() + "/Merged.pdf", "PDF (*.pdf)")
-        if s: pdf_engine.merge_pdfs([self.ui.listMergeFiles.item(i).data(Qt.UserRole) for i in range(c)], s); QMessageBox.information(self.ui, "Success", "Files Merged!")
+        if s: 
+            pdf_engine.merge_pdfs([self.ui.listMergeFiles.item(i).data(Qt.UserRole) for i in range(c)], s)
+            
+            # Message box with Open File option
+            msg = QMessageBox(self.ui)
+            msg.setWindowTitle("Success")
+            msg.setText("Files Merged Successfully!")
+            open_btn = msg.addButton("Open File", QMessageBox.ActionRole)
+            msg.addButton("OK", QMessageBox.AcceptRole)
+            msg.exec()
+            
+            if msg.clickedButton() == open_btn:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(s))
 
     # --- SPLIT LOGIC ---
     def load_target_split_file(self, fp):
@@ -416,10 +428,20 @@ class PdfToolboxApp(QObject):
         try:
             if self.ui.radioSingle.isChecked():
                 s, _ = QFileDialog.getSaveFileName(self.ui, "Save", "", "PDF (*.pdf)")
-                if s: pdf_engine.extract_to_single_pdf(sp, pages, s)
+                if s: 
+                    pdf_engine.extract_to_single_pdf(sp, pages, s)
+                    msg = QMessageBox(self.ui)
+                    msg.setWindowTitle("Success")
+                    msg.setText("PDF Split Successfully!")
+                    open_btn = msg.addButton("Open File", QMessageBox.ActionRole)
+                    msg.addButton("OK", QMessageBox.AcceptRole)
+                    msg.exec()
+                    if msg.clickedButton() == open_btn: QDesktopServices.openUrl(QUrl.fromLocalFile(s))
             elif self.ui.radioSeparate.isChecked():
                 sd = QFileDialog.getExistingDirectory(self.ui, "Select Folder")
-                if sd: pdf_engine.extract_to_separate_pdfs(sp, pages, sd)
+                if sd: 
+                    pdf_engine.extract_to_separate_pdfs(sp, pages, sd)
+                    QMessageBox.information(self.ui, "Success", "Pages extracted to folder!")
         except Exception as e: QMessageBox.critical(self.ui, "Error", str(e))
 
     # --- SHARED PREVIEW LOGIC ---
@@ -449,7 +471,7 @@ class PdfToolboxApp(QObject):
         # splits the file, the resulting pages don't inherit a hidden macOS state.
         import tempfile
         base_name = os.path.splitext(os.path.basename(fp))[0]
-        self.temp_word_pdf = os.path.join(tempfile.gettempdir(), f"{base_name}_converted.pdf")
+        self.temp_word_pdf = os.path.join(tempfile.gettempdir(), f"{base_name}.pdf")
         
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -480,24 +502,24 @@ class PdfToolboxApp(QObject):
     def invert_word_selection(self): [self.ui.listWordPages.item(i).setSelected(not self.ui.listWordPages.item(i).isSelected()) for i in range(self.ui.listWordPages.count())]
 
     def execute_word_conversion(self):
-        if not self.temp_word_pdf or not os.path.exists(self.temp_word_pdf):
-            return
-            
+        if not self.temp_word_pdf or not os.path.exists(self.temp_word_pdf): return
         pages = sorted([i.data(Qt.UserRole) for i in self.ui.listWordPages.selectedItems()])
-        if not pages: 
-            return
-            
+        if not pages: return
         try:
             if self.ui.radioWordSingle.isChecked():
                 s, _ = QFileDialog.getSaveFileName(self.ui, "Save PDF", "", "PDF (*.pdf)")
                 if s: 
-                    # Reuse the exact same robust extraction logic on our background temporary PDF
                     pdf_engine.extract_to_single_pdf(self.temp_word_pdf, pages, s)
-                    QMessageBox.information(self.ui, "Success", "Word Document converted and saved!")
+                    msg = QMessageBox(self.ui)
+                    msg.setWindowTitle("Success")
+                    msg.setText("Word Document converted and saved!")
+                    open_btn = msg.addButton("Open File", QMessageBox.ActionRole)
+                    msg.addButton("OK", QMessageBox.AcceptRole)
+                    msg.exec()
+                    if msg.clickedButton() == open_btn: QDesktopServices.openUrl(QUrl.fromLocalFile(s))
             elif self.ui.radioWordSeparate.isChecked():
                 sd = QFileDialog.getExistingDirectory(self.ui, "Select Folder")
                 if sd: 
                     pdf_engine.extract_to_separate_pdfs(self.temp_word_pdf, pages, sd)
                     QMessageBox.information(self.ui, "Success", "Pages extracted as separate PDFs!")
-        except Exception as e: 
-            QMessageBox.critical(self.ui, "Error", str(e))
+        except Exception as e: QMessageBox.critical(self.ui, "Error", str(e))
