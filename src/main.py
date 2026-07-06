@@ -15,9 +15,10 @@ if __name__ == "__main__":
     # 2. Initialize the application controller
     window = PdfToolboxApp()
 
-    # 3. Set the global application icon dynamically based on the OS
-    icon_extension = "ico" if sys.platform == "win32" else "icns"
-    app.setWindowIcon(QIcon(window.resource_path(f"src/icon.{icon_extension}")))
+    # 3. Set the global application icon for the window frame and taskbar
+    # Using the exact same bulletproof path we used for the UI banner
+    icon_path = window.resource_path("icon.png")
+    app.setWindowIcon(QIcon(icon_path))
 
     # 4. Show the window and execute the app loop
     window.ui.show()

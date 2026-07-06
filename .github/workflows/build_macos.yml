@@ -28,13 +28,22 @@ jobs:
         run: |
           pyinstaller --noconfirm --windowed --name "PDF Toolbox" --icon="src/icon.icns" --add-data "src/main_window.ui:." --add-data "src/icon.png:." --hidden-import controller --hidden-import pdf_engine src/main.py
 
-      - name: Zip the Mac App
+      - name: Create macOS DMG Installer
         run: |
-          cd dist
-          zip -r PDF-Toolbox-macOS.zip "PDF Toolbox.app"
+          # Create a staging folder for the DMG contents
+          mkdir -p dist/dmg_content
+          
+          # Copy the compiled application into the staging folder
+          cp -r "dist/PDF Toolbox.app" dist/dmg_content/
+          
+          # Create a shortcut to the macOS Applications folder
+          ln -s /Applications dist/dmg_content/Applications
+          
+          # Use native macOS tools to package it into a DMG
+          hdiutil create -volname "PDF Toolbox" -srcfolder dist/dmg_content -ov -format UDZO "dist/PDF-Toolbox.dmg"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PDF-Toolbox-macOS
-          path: dist/PDF-Toolbox-macOS.zip
+          path: dist/PDF-Toolbox.dmg
