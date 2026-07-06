@@ -1,9 +1,11 @@
 import sys
 import os
+import tempfile
 import fitz  
 import pdf_engine  
+from docx2pdf import convert # New import for Word conversion
 from PySide6.QtWidgets import (QFileDialog, QMessageBox, QListWidgetItem, QLabel, 
-                               QListView, QMenu, QPushButton, QStackedWidget)
+                               QListView, QMenu, QPushButton, QStackedWidget, QApplication)
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtCore import (QFile, QIODevice, Qt, QSize, QUrl, QSettings, QEvent, QObject,
                             QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QRect)
@@ -11,7 +13,7 @@ from PySide6.QtGui import QImage, QPixmap, QIcon, QDesktopServices, QAction
 
 
 class TabSlideAnimator(QObject):
-    def __init__(self, tab_widget, duration=100, parent=None):
+    def __init__(self, tab_widget, duration=260, parent=None):
         super().__init__(parent)
         self.tab_widget = tab_widget
         self.duration = duration
@@ -49,7 +51,7 @@ class TabSlideAnimator(QObject):
         direction = 1 if new_index > old_index else -1
         width = area_rect.width()
 
-        self._cleanup()  # in case a rapid double-click left one running
+        self._cleanup()  
 
         self._overlay_old = QLabel(self.tab_widget)
         self._overlay_old.setPixmap(old_pixmap)
@@ -99,6 +101,7 @@ class PdfToolboxApp(QObject):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("Louro Devs", "PDF Toolbox")
+        self.temp_word_pdf = None # Holds the background converted PDF path
         self.load_ui()
         self.setup_tab_animation()
         self.apply_ui_enhancements()
@@ -124,7 +127,6 @@ class PdfToolboxApp(QObject):
         ui_file.close()
         self.ui.setWindowTitle("PDF Toolbox")
 
-        # Load Icon into Header
         if hasattr(self.ui, 'icon_label'):
             self.ui.icon_label.setFixedSize(32, 32)
             self.ui.icon_label.setScaledContents(True)
@@ -136,6 +138,8 @@ class PdfToolboxApp(QObject):
 
     def apply_ui_enhancements(self):
         self.ui.txtSplitPath.setPlaceholderText("Drag and Drop a PDF here...")
+        if hasattr(self.ui, 'txtWordPath'):
+            self.ui.txtWordPath.setPlaceholderText("Drag and Drop a Word Document here...")
         
         # --- WATERMARK OVERLAYS ---
         self.watermark_merge = QLabel("Drag and Drop PDFs here...", self.ui.listMergeFiles)
@@ -148,13 +152,21 @@ class PdfToolboxApp(QObject):
         self.watermark_split.setStyleSheet("color: rgba(128, 128, 128, 0.4); font-size: 18px; font-weight: bold; border: none;")
         self.watermark_split.setAttribute(Qt.WA_TransparentForMouseEvents)
 
+        if hasattr(self.ui, 'listWordPages'):
+            self.watermark_word = QLabel("Drag and Drop Target Word Doc here...", self.ui.listWordPages)
+            self.watermark_word.setAlignment(Qt.AlignCenter)
+            self.watermark_word.setStyleSheet("color: rgba(128, 128, 128, 0.4); font-size: 18px; font-weight: bold; border: none;")
+            self.watermark_word.setAttribute(Qt.WA_TransparentForMouseEvents)
+
         # --- GRID JUSTIFICATION ---
-        self.ui.listPages.setResizeMode(QListView.Adjust)
-        self.ui.listPages.setUniformItemSizes(True)
-        self.ui.listPages.setWordWrap(True)
-        self.ui.listPages.setSpacing(10)
-        self.ui.listPages.setIconSize(QSize(130, 170))
-        self.ui.listPages.setGridSize(QSize(150, 200))
+        for list_view in [self.ui.listPages, getattr(self.ui, 'listWordPages', None)]:
+            if list_view:
+                list_view.setResizeMode(QListView.Adjust)
+                list_view.setUniformItemSizes(True)
+                list_view.setWordWrap(True)
+                list_view.setSpacing(10)
+                list_view.setIconSize(QSize(130, 170))
+                list_view.setGridSize(QSize(150, 200))
 
         # --- CUSTOM MERGE LIST DRAG & DROP UI ---
         self.ui.listMergeFiles.setDragEnabled(True)
@@ -173,15 +185,15 @@ class PdfToolboxApp(QObject):
         QPushButton { border: 2px solid rgb(49, 216, 75); border-radius: 12px; padding: 8px 16px; font-weight: bold; background-color: #2D2D30; color: white; }
         QPushButton:hover { background-color: #3D3D40; }
         
-        /* Functional Colors & Hover States */
-        QPushButton#btnAddFiles, QPushButton#btnSelectSplit { border: 2px solid #0E639C; background-color: #0E639C; color: white; }
-        QPushButton#btnAddFiles:hover, QPushButton#btnSelectSplit:hover { background-color: #1177BB; border-color: #1177BB; }
+        /* Functional Colors & Hover States (Mapped for all Tabs) */
+        QPushButton#btnAddFiles, QPushButton#btnSelectSplit, QPushButton#btnSelectWord { border: 2px solid #0E639C; background-color: #0E639C; color: white; }
+        QPushButton#btnAddFiles:hover, QPushButton#btnSelectSplit:hover, QPushButton#btnSelectWord:hover { background-color: #1177BB; border-color: #1177BB; }
         
-        QPushButton#btnRemoveSelected, QPushButton#btnClearSplit { border: 2px solid #C62828; background-color: #C62828; color: white; }
-        QPushButton#btnRemoveSelected:hover, QPushButton#btnClearSplit:hover { background-color: #D32F2F; border-color: #D32F2F; }
+        QPushButton#btnRemoveSelected, QPushButton#btnClearSplit, QPushButton#btnClearWord { border: 2px solid #C62828; background-color: #C62828; color: white; }
+        QPushButton#btnRemoveSelected:hover, QPushButton#btnClearSplit:hover, QPushButton#btnClearWord:hover { background-color: #D32F2F; border-color: #D32F2F; }
         
-        QPushButton#btnMerge, QPushButton#btnSplit { border: 2px solid rgb(49, 216, 75); background-color: rgb(49, 216, 75); color: black; }
-        QPushButton#btnMerge:hover, QPushButton#btnSplit:hover { background-color: rgb(69, 236, 95); border-color: rgb(69, 236, 95); }
+        QPushButton#btnMerge, QPushButton#btnSplit, QPushButton#btnConvertWord { border: 2px solid rgb(49, 216, 75); background-color: rgb(49, 216, 75); color: black; }
+        QPushButton#btnMerge:hover, QPushButton#btnSplit:hover, QPushButton#btnConvertWord:hover { background-color: rgb(69, 236, 95); border-color: rgb(69, 236, 95); }
         
         /* Tabs */
         QTabBar::tab { padding: 10px 25px; margin: 5px; border-radius: 12px; font-weight: bold; background-color: #2D2D30; color: #aaa; }
@@ -227,31 +239,22 @@ class PdfToolboxApp(QObject):
         
         long_content = """
         <h2 style="color: #4DA8DA; margin-bottom: 0px;">Welcome to the PDF Toolbox</h2>
-        <p style="color: #aaaaaa; margin-top: 0px;">This application allows you to merge multiple PDF documents into one, or split specific pages from a PDF, all while maintaining internal data structures like hyperlinks and bookmarks.</p>
+        <p style="color: #aaaaaa; margin-top: 0px;">This application allows you to manipulate PDF structures and convert Word documents.</p>
         
         <hr style="background-color: #444; border: none; height: 1px;">
-        
         <h3 style="color: #2E7D32;">Merging PDFs</h3>
         <ol>
-            <li style="margin-bottom: 8px;"><b>Drag and Drop</b> your PDF files directly into the empty space, or click the blue <b>Add PDFs...</b> button to select them.</li>
-            <li style="margin-bottom: 8px;">Rearrange the exact order you want them stitched together by <b>dragging the files up and down with your mouse</b>, or by selecting a file and using the <b>Move Up (↑)</b> and <b>Move Down (↓)</b> buttons.</li>
-            <li style="margin-bottom: 8px;">If you added a file by mistake, select it and click the red <b>Remove</b> button.</li>
-            <li style="margin-bottom: 8px;">Once your sequence is ready, click the green <b>Merge and Save!</b> button to combine them.</li>
+            <li style="margin-bottom: 8px;"><b>Drag and Drop</b> your PDF files directly into the empty space.</li>
+            <li style="margin-bottom: 8px;">Rearrange the order by <b>dragging the files up and down</b>.</li>
+            <li style="margin-bottom: 8px;">Click the green <b>Merge and Save!</b> button.</li>
         </ol>
-        
         <hr style="background-color: #444; border: none; height: 1px;">
-        
-        <h3 style="color: #2E7D32;">Splitting PDFs</h3>
+        <h3 style="color: #2E7D32;">Splitting / Word to PDF</h3>
         <ol>
-            <li style="margin-bottom: 8px;"><b>Drag and Drop</b> your target document directly into the app, or click the blue <b>Select PDF to Split...</b> button. A visual grid of the pages will automatically generate.</li>
-            <li style="margin-bottom: 8px;">Click the pages you wish to extract. You can hold your system's modifier key (Ctrl/Cmd) to select multiple individual pages, or use the selection buttons above the grid.</li>
-            <li style="margin-bottom: 8px;">Choose your output method at the bottom:
-                <ul>
-                    <li><b>Extract to Single PDF:</b> Takes the highlighted pages and stitches them into one new file.</li>
-                    <li><b>Split into Separate PDFs:</b> Exports every highlighted page as its own individual PDF file into a folder of your choice.</li>
-                </ul>
-            </li>
-            <li>Click the green <b>Split into Single Pages!</b> button to execute.</li>
+            <li style="margin-bottom: 8px;"><b>Drag and Drop</b> your target PDF or Word file into the app. A visual grid will generate.</li>
+            <li style="margin-bottom: 8px;">Select the pages you wish to extract or convert.</li>
+            <li style="margin-bottom: 8px;">Choose to output as a single stitched PDF, or as separate individual PDF files.</li>
+            <li>Click the green <b>Execute</b> button.</li>
         </ol>
         """
         msg.setText(long_content)
@@ -265,10 +268,10 @@ class PdfToolboxApp(QObject):
         about_text = """
         <center>
         <h2 style="color: #ffffff;">PDF Toolbox</h2>
-        <p style="color: #cccccc;">Version 1.0.1</p>
+        <p style="color: #cccccc;">Version 1.1.0</p>
         <br>
         <p>Developed by Louro Devs</p>
-        <p>A professional utility for precision PDF structural manipulation.</p>
+        <p>A professional utility for precision PDF and Document manipulation.</p>
         <hr>
         <p style='font-size: 11px; color: #888888;'>Copyright © 2026. All rights reserved.</p>
         </center>
@@ -277,21 +280,35 @@ class PdfToolboxApp(QObject):
         msg.exec()
 
     def initialize_signals(self):
+        # Merge Signals
         self.ui.btnAddFiles.clicked.connect(self.add_merge_files)
         self.ui.btnRemoveSelected.clicked.connect(self.remove_selected_file)
         self.ui.btnMoveUp.clicked.connect(self.move_file_up)
         self.ui.btnMoveDown.clicked.connect(self.move_file_down)
         self.ui.btnMerge.clicked.connect(self.execute_merge)
+        
+        # Split Signals
         self.ui.btnSelectSplit.clicked.connect(self.execute_file_selection)
         self.ui.btnClearSplit.clicked.connect(self.clear_split_file)
         self.ui.btnSelectAll.clicked.connect(self.select_all_pages)
         self.ui.btnClear.clicked.connect(self.clear_page_selection)
         self.ui.btnInvert.clicked.connect(self.invert_page_selection)
         self.ui.btnSplit.clicked.connect(self.execute_split)
+        
+        # Word Signals
+        if hasattr(self.ui, 'btnSelectWord'):
+            self.ui.btnSelectWord.clicked.connect(self.execute_word_selection)
+            self.ui.btnClearWord.clicked.connect(self.clear_word_file)
+            self.ui.btnWordSelectAll.clicked.connect(self.select_all_word_pages)
+            self.ui.btnWordClear.clicked.connect(self.clear_word_selection)
+            self.ui.btnWordInvert.clicked.connect(self.invert_word_selection)
+            self.ui.btnConvertWord.clicked.connect(self.execute_word_conversion)
 
     def update_watermarks(self):
         self.watermark_merge.setVisible(self.ui.listMergeFiles.count() == 0)
         self.watermark_split.setVisible(self.ui.listPages.count() == 0)
+        if hasattr(self, 'watermark_word'):
+            self.watermark_word.setVisible(self.ui.listWordPages.count() == 0)
 
     def setup_menu_bar(self):
         menu_bar = self.ui.menuBar()
@@ -306,10 +323,17 @@ class PdfToolboxApp(QObject):
     def setup_event_filters(self):
         self.ui.listMergeFiles.installEventFilter(self)
         self.ui.listMergeFiles.viewport().installEventFilter(self)
+        
         self.ui.txtSplitPath.setAcceptDrops(True)
         self.ui.txtSplitPath.installEventFilter(self)
         self.ui.listPages.setAcceptDrops(True)
         self.ui.listPages.installEventFilter(self)
+
+        if hasattr(self.ui, 'txtWordPath'):
+            self.ui.txtWordPath.setAcceptDrops(True)
+            self.ui.txtWordPath.installEventFilter(self)
+            self.ui.listWordPages.setAcceptDrops(True)
+            self.ui.listWordPages.installEventFilter(self)
 
     def eventFilter(self, watched, event):
         if watched == self.ui.listMergeFiles.viewport():
@@ -318,19 +342,28 @@ class PdfToolboxApp(QObject):
         if event.type() == QEvent.Resize:
             if watched == self.ui.listMergeFiles: self.watermark_merge.resize(event.size())
             elif watched == self.ui.listPages: self.watermark_split.resize(event.size())
+            elif hasattr(self, 'watermark_word') and watched == self.ui.listWordPages: self.watermark_word.resize(event.size())
         elif event.type() in (QEvent.DragEnter, QEvent.DragMove):
             if event.mimeData().hasUrls(): event.acceptProposedAction(); return True
         elif event.type() == QEvent.Drop:
             if event.mimeData().hasUrls():
                 event.acceptProposedAction()
-                paths = [u.toLocalFile() for u in event.mimeData().urls() if u.toLocalFile().lower().endswith('.pdf')]
+                paths = [u.toLocalFile() for u in event.mimeData().urls()]
                 if paths:
-                    if watched == self.ui.listMergeFiles: [self.append_merge_file(p) for p in paths]
-                    elif watched in (self.ui.txtSplitPath, self.ui.listPages): self.load_target_split_file(paths[0])
-                    return True
+                    p = paths[0]
+                    # Route to proper tab based on file extension
+                    if p.lower().endswith('.pdf'):
+                        if watched == self.ui.listMergeFiles: 
+                            [self.append_merge_file(file_path) for file_path in paths if file_path.lower().endswith('.pdf')]
+                        elif watched in (self.ui.txtSplitPath, self.ui.listPages): 
+                            self.load_target_split_file(p)
+                    elif p.lower().endswith(('.doc', '.docx')):
+                        if hasattr(self.ui, 'txtWordPath') and watched in (self.ui.txtWordPath, self.ui.listWordPages):
+                            self.load_target_word_file(p)
+                return True
         return super().eventFilter(watched, event)
 
-    # --- MERGE & SPLIT LOGIC ---
+    # --- MERGE LOGIC ---
     def append_merge_file(self, path):
         item = QListWidgetItem(os.path.basename(path))
         item.setData(Qt.UserRole, path)
@@ -359,9 +392,10 @@ class PdfToolboxApp(QObject):
         s, _ = QFileDialog.getSaveFileName(self.ui, "Save", self.get_last_dir() + "/Merged.pdf", "PDF (*.pdf)")
         if s: pdf_engine.merge_pdfs([self.ui.listMergeFiles.item(i).data(Qt.UserRole) for i in range(c)], s); QMessageBox.information(self.ui, "Success", "Files Merged!")
 
+    # --- SPLIT LOGIC ---
     def load_target_split_file(self, fp):
         self.ui.txtSplitPath.setText(fp)
-        self.load_split_preview(fp)
+        self.load_preview_grid(fp, self.ui.listPages)
 
     def execute_file_selection(self):
         fp, _ = QFileDialog.getOpenFileName(self.ui, "Select PDF", self.get_last_dir(), "PDF (*.pdf)")
@@ -369,15 +403,6 @@ class PdfToolboxApp(QObject):
 
     def clear_split_file(self):
         self.ui.txtSplitPath.clear(); self.ui.listPages.clear(); self.update_watermarks()
-
-    def load_split_preview(self, fp):
-        self.ui.listPages.clear()
-        doc = fitz.open(fp)
-        for i in range(len(doc)):
-            pix = doc.load_page(i).get_pixmap(matrix=fitz.Matrix(0.15, 0.15))
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
-            item = QListWidgetItem(f"Page {i + 1}"); item.setIcon(QIcon(QPixmap.fromImage(img))); item.setData(Qt.UserRole, i); self.ui.listPages.addItem(item)
-        doc.close(); self.update_watermarks()
 
     def select_all_pages(self): [self.ui.listPages.item(i).setSelected(True) for i in range(self.ui.listPages.count())]
     def clear_page_selection(self): [self.ui.listPages.item(i).setSelected(False) for i in range(self.ui.listPages.count())]
@@ -396,3 +421,83 @@ class PdfToolboxApp(QObject):
                 sd = QFileDialog.getExistingDirectory(self.ui, "Select Folder")
                 if sd: pdf_engine.extract_to_separate_pdfs(sp, pages, sd)
         except Exception as e: QMessageBox.critical(self.ui, "Error", str(e))
+
+    # --- SHARED PREVIEW LOGIC ---
+    def load_preview_grid(self, fp, list_widget):
+        list_widget.clear()
+        doc = fitz.open(fp)
+        for i in range(len(doc)):
+            pix = doc.load_page(i).get_pixmap(matrix=fitz.Matrix(0.15, 0.15))
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
+            item = QListWidgetItem(f"Page {i + 1}")
+            item.setIcon(QIcon(QPixmap.fromImage(img)))
+            item.setData(Qt.UserRole, i)
+            list_widget.addItem(item)
+        doc.close()
+        self.update_watermarks()
+
+    # --- WORD TO PDF LOGIC ---
+    def execute_word_selection(self):
+        fp, _ = QFileDialog.getOpenFileName(self.ui, "Select Word Document", self.get_last_dir(), "Word Documents (*.doc *.docx)")
+        if fp: self.load_target_word_file(fp)
+
+    def load_target_word_file(self, fp):
+        self.ui.txtWordPath.setText(fp)
+        
+        # --- FIX: Visible Temp File ---
+        # We use a clean name without a dot so that when the pdf_engine 
+        # splits the file, the resulting pages don't inherit a hidden macOS state.
+        import tempfile
+        base_name = os.path.splitext(os.path.basename(fp))[0]
+        self.temp_word_pdf = os.path.join(tempfile.gettempdir(), f"{base_name}_converted.pdf")
+        
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            convert(fp, self.temp_word_pdf)
+            QApplication.restoreOverrideCursor()
+            
+            # Load the newly created temp PDF into the word preview grid
+            self.load_preview_grid(self.temp_word_pdf, self.ui.listWordPages)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self.ui, "Conversion Error", f"Failed to convert Word document.\nEnsure Microsoft Word is installed to process the file.\n\nError: {str(e)}")
+
+    def clear_word_file(self):
+        self.ui.txtWordPath.clear()
+        self.ui.listWordPages.clear()
+        self.update_watermarks()
+        
+        # Clean up temp file
+        if self.temp_word_pdf and os.path.exists(self.temp_word_pdf):
+            try:
+                os.remove(self.temp_word_pdf)
+                self.temp_word_pdf = None
+            except:
+                pass
+
+    def select_all_word_pages(self): [self.ui.listWordPages.item(i).setSelected(True) for i in range(self.ui.listWordPages.count())]
+    def clear_word_selection(self): [self.ui.listWordPages.item(i).setSelected(False) for i in range(self.ui.listWordPages.count())]
+    def invert_word_selection(self): [self.ui.listWordPages.item(i).setSelected(not self.ui.listWordPages.item(i).isSelected()) for i in range(self.ui.listWordPages.count())]
+
+    def execute_word_conversion(self):
+        if not self.temp_word_pdf or not os.path.exists(self.temp_word_pdf):
+            return
+            
+        pages = sorted([i.data(Qt.UserRole) for i in self.ui.listWordPages.selectedItems()])
+        if not pages: 
+            return
+            
+        try:
+            if self.ui.radioWordSingle.isChecked():
+                s, _ = QFileDialog.getSaveFileName(self.ui, "Save PDF", "", "PDF (*.pdf)")
+                if s: 
+                    # Reuse the exact same robust extraction logic on our background temporary PDF
+                    pdf_engine.extract_to_single_pdf(self.temp_word_pdf, pages, s)
+                    QMessageBox.information(self.ui, "Success", "Word Document converted and saved!")
+            elif self.ui.radioWordSeparate.isChecked():
+                sd = QFileDialog.getExistingDirectory(self.ui, "Select Folder")
+                if sd: 
+                    pdf_engine.extract_to_separate_pdfs(self.temp_word_pdf, pages, sd)
+                    QMessageBox.information(self.ui, "Success", "Pages extracted as separate PDFs!")
+        except Exception as e: 
+            QMessageBox.critical(self.ui, "Error", str(e))
