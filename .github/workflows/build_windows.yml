@@ -25,7 +25,7 @@ jobs:
       - name: Build with PyInstaller
         shell: cmd
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "PDF Toolbox" --add-data "src/main_window.ui;src" --hidden-import controller --hidden-import pdf_engine src/main.py
+          pyinstaller --noconfirm --onefile --debug=all --name "PDF Toolbox" --add-data "src/main_window.ui;src" --hidden-import controller --hidden-import pdf_engine src/main.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
