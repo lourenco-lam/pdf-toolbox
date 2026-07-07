@@ -1,25 +1,33 @@
 import sys
 import ctypes
+import io
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 from controller import PdfToolboxApp
 
 if __name__ == "__main__":
+    # --- PYINSTALLER WINDOWED MODE FIX ---
+    # Redirect standard output/error to a dummy stream so libraries 
+    # that attempt to print to the console do not crash the GUI.
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
+
     app = QApplication(sys.argv)
 
-    # 1. Force Windows to recognize the app ID for the taskbar
+    # Force Windows to recognize the app ID for the taskbar
     if sys.platform == 'win32':
-        myappid = 'lourencolam.pdftoolbox.app.1.0'
+        myappid = 'lourencolam.pdftoolbox.app.1.1'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-    # 2. Initialize the application controller
+    # Initialize the application controller
     window = PdfToolboxApp()
 
-    # 3. Set the global application icon for the window frame and taskbar
-    # Using the exact same bulletproof path we used for the UI banner
+    # Set the global application icon for the window frame and taskbar
     icon_path = window.resource_path("icon.png")
     app.setWindowIcon(QIcon(icon_path))
 
-    # 4. Show the window and execute the app loop
+    # Show the window and execute the app loop
     window.ui.show()
     sys.exit(app.exec())
