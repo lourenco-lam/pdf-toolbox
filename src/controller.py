@@ -349,17 +349,32 @@ class PdfToolboxApp(QObject):
             if event.mimeData().hasUrls():
                 event.acceptProposedAction()
                 paths = [u.toLocalFile() for u in event.mimeData().urls()]
-                if paths:
+                if not paths: 
+                    return True
+                
+                # --- MERGE LIST SIMPLE APPEND DROP ---
+                # Check BOTH the list widget AND its viewport
+                if watched in (self.ui.listMergeFiles, self.ui.listMergeFiles.viewport()): 
+                    try:
+                        for p in paths:
+                            if p.lower().endswith('.pdf'):
+                                self.append_merge_file(p)
+                    except Exception as e:
+                        # This will catch and display any silent errors preventing the drop
+                        QMessageBox.critical(self.ui, "Drop Error", f"Failed to add dropped file:\n{str(e)}")
+                            
+                # --- SPLIT PDF DROP ---
+                elif watched in (self.ui.txtSplitPath, self.ui.listPages, self.ui.listPages.viewport()): 
                     p = paths[0]
-                    # Route to proper tab based on file extension
                     if p.lower().endswith('.pdf'):
-                        if watched == self.ui.listMergeFiles: 
-                            [self.append_merge_file(file_path) for file_path in paths if file_path.lower().endswith('.pdf')]
-                        elif watched in (self.ui.txtSplitPath, self.ui.listPages): 
-                            self.load_target_split_file(p)
-                    elif p.lower().endswith(('.doc', '.docx')):
-                        if hasattr(self.ui, 'txtWordPath') and watched in (self.ui.txtWordPath, self.ui.listWordPages):
-                            self.load_target_word_file(p)
+                        self.load_target_split_file(p)
+                        
+                # --- WORD TO PDF DROP ---
+                elif hasattr(self.ui, 'txtWordPath') and watched in (self.ui.txtWordPath, getattr(self.ui, 'listWordPages', None), getattr(self.ui.listWordPages, 'viewport', lambda: None)()):
+                    p = paths[0]
+                    if p.lower().endswith(('.doc', '.docx')):
+                        self.load_target_word_file(p)
+                        
                 return True
         return super().eventFilter(watched, event)
 
