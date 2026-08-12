@@ -283,7 +283,7 @@ class PdfToolboxApp(QObject):
         about_text = """
         <center>
         <h2 style="color: #ffffff;">PDF Toolbox</h2>
-        <p style="color: #cccccc;">Version 1.1.0</p>
+        <p style="color: #cccccc;">Version 1.2.0</p>
         <br>
         <p>Developed by Louro Devs</p>
         <p>A professional utility for precision PDF and Document manipulation.</p>
