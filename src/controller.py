@@ -1,7 +1,7 @@
 import sys
 import os
 import tempfile
-import fitz  
+import pymupdf as fitz
 import pdf_engine  
 from docx2pdf import convert # New import for Word conversion
 from PySide6.QtWidgets import (QFileDialog, QMessageBox, QListWidgetItem, QLabel, 
@@ -112,9 +112,16 @@ class PdfToolboxApp(QObject):
         self.update_watermarks()
 
     def resource_path(self, relative_path):
-        if hasattr(sys, '_MEIPASS'):
-            return os.path.join(sys._MEIPASS, relative_path)
-        return os.path.join(os.path.abspath("."), relative_path)
+        import os
+        import sys
+        try:
+            # PyInstaller creates a temp folder and stores path in _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            # This locks the path to exactly where controller.py is located
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        return os.path.join(base_path, relative_path)
 
     def load_ui(self):
         ui_file_name = self.resource_path("main_window.ui")
@@ -131,6 +138,14 @@ class PdfToolboxApp(QObject):
             self.ui.icon_label.setFixedSize(32, 32)
             self.ui.icon_label.setScaledContents(True)
             self.ui.icon_label.setPixmap(QPixmap(self.resource_path("icon.png")))
+
+        # Force the app to start on the first tab (Merge)
+        # Note: If your tab widget is named something else in Designer, change 'tabWidget' to match
+        if hasattr(self.ui, 'tabWidget'):
+            self.ui.tabWidget.setCurrentIndex(0)
+
+        # Watch the main window for close events
+        self.ui.installEventFilter(self)
 
     def setup_tab_animation(self):
         if hasattr(self.ui, 'tabWidget'):
@@ -202,7 +217,7 @@ class PdfToolboxApp(QObject):
         /* List Widgets */
         QListWidget { border: 2px solid #444; border-radius: 12px; background: #1e1e1e; }
         QListWidget::item { border-radius: 8px; margin: 4px; padding: 8px; }
-        QListWidget::item:selected { background-color: #5C6BC0; }
+        QListWidget::item:selected { background-color: #45EC5F; }
         
         /* Menu Button */
         QPushButton#menu_button { border: none; background: transparent; font-size: 24px; border-radius: 4px; }
@@ -321,6 +336,9 @@ class PdfToolboxApp(QObject):
     def save_last_dir(self, file_path): self.settings.setValue("last_directory", os.path.dirname(file_path))
 
     def setup_event_filters(self):
+        # Watch the main window for the Close/Quit event
+        self.ui.installEventFilter(self)
+
         self.ui.listMergeFiles.installEventFilter(self)
         self.ui.listMergeFiles.viewport().installEventFilter(self)
         
@@ -336,13 +354,41 @@ class PdfToolboxApp(QObject):
             self.ui.listWordPages.installEventFilter(self)
 
     def eventFilter(self, watched, event):
+        # --- QUIT WARNING INTERCEPT ---
+        if watched == self.ui and event.type() == QEvent.Close:
+            files_loaded = False
+            # Check if any files are currently loaded in any of the tools
+            if self.ui.listMergeFiles.count() > 0:
+                files_loaded = True
+            elif hasattr(self.ui, 'txtSplitPath') and self.ui.txtSplitPath.text().strip():
+                files_loaded = True
+            elif hasattr(self.ui, 'txtWordPath') and self.ui.txtWordPath.text().strip():
+                files_loaded = True
+
+            if files_loaded:
+                reply = QMessageBox.warning(
+                    self.ui, 
+                    "Warning: Unsaved Work", 
+                    "You have files loaded. If you quit, all your current progress will be lost.\n\nAre you sure you want to exit?",
+                    QMessageBox.Yes | QMessageBox.No, 
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    event.ignore() # Cancel the close event
+                    return True    # Stop processing the event
+
+        # --- MOUSE CURSORS ---
         if watched == self.ui.listMergeFiles.viewport():
             if event.type() == QEvent.MouseButtonPress: self.ui.listMergeFiles.viewport().setCursor(Qt.ClosedHandCursor)
             elif event.type() == QEvent.MouseButtonRelease: self.ui.listMergeFiles.viewport().setCursor(Qt.OpenHandCursor)
+            
+        # --- RESIZE WATERMARKS ---
         if event.type() == QEvent.Resize:
             if watched == self.ui.listMergeFiles: self.watermark_merge.resize(event.size())
             elif watched == self.ui.listPages: self.watermark_split.resize(event.size())
             elif hasattr(self, 'watermark_word') and watched == self.ui.listWordPages: self.watermark_word.resize(event.size())
+            
+        # --- DRAG AND DROP ---
         elif event.type() in (QEvent.DragEnter, QEvent.DragMove):
             if event.mimeData().hasUrls(): event.acceptProposedAction(); return True
         elif event.type() == QEvent.Drop:
@@ -376,6 +422,7 @@ class PdfToolboxApp(QObject):
                         self.load_target_word_file(p)
                         
                 return True
+                
         return super().eventFilter(watched, event)
 
     # --- MERGE LOGIC ---
